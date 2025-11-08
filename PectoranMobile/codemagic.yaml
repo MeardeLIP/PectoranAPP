@@ -1,0 +1,72 @@
+workflows:
+  ios-workflow:
+    name: iOS Workflow
+    max_build_duration: 120
+    instance_type: mac_mini_m1
+    environment:
+      node: 20
+      cocoapods: default
+    scripts:
+      - name: Install npm dependencies
+        script: |
+          npm ci
+      - name: Install CocoaPods dependencies
+        script: |
+          cd ios && pod install
+      - name: Build iOS app
+        script: |
+          cd ios
+          xcodebuild build \
+            -workspace PectoranMobile.xcworkspace \
+            -scheme PectoranMobile \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates
+      - name: Create IPA from .app
+        script: |
+          cd ios/build
+          # Ищем .app файл
+          APP_PATH=$(find . -name "PectoranMobile.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            echo "⚠️ .app файл не найден в build, ищем в DerivedData"
+            APP_PATH=$(find $HOME/Library/Developer/Xcode/DerivedData -name "PectoranMobile.app" -type d | head -1)
+          fi
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ .app файл не найден"
+            ls -la
+            exit 1
+          fi
+          
+          echo "✅ Найден .app: $APP_PATH"
+          
+          # Создаем директорию для IPA
+          mkdir -p ipa/Payload
+          cp -r "$APP_PATH" ipa/Payload/
+          
+          # Создаем IPA
+          cd ipa
+          zip -r ../PectoranMobile.ipa Payload
+          cd ..
+          
+          echo "✅ IPA создан: PectoranMobile.ipa"
+          ls -lh *.ipa
+    artifacts:
+      - ios/build/**/*.ipa
+      - ios/build/**/*.app
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.app
+    publishing:
+      scripts:
+        - name: Build status
+          script: |
+            echo "✅ iOS build completed"
+            if [ -f "ios/build/PectoranMobile.ipa" ]; then
+              echo "✅ IPA файл найден и готов к скачиванию"
+            else
+              echo "⚠️ IPA файл не найден, но сборка завершена"
+            fi
